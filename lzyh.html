@@ -1,0 +1,467 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>粒子烟花</title>
+
+    <!-- 设置页面样式 -->
+    <style>
+        /* 设置页面背景为6度倾斜的线性渐变，从#214到#000颜色，填充整个屏幕，并隐藏滚动条 */
+        body {
+            background-image: linear-gradient(6deg, #214, #000);
+            background-size: 100% 100%;
+            overflow:hidden
+        }
+
+        /* 确保canvas元素以块级元素显示，避免出现滚动条或其他布局问题 */
+        canvas { display: block; }
+    </style>
+
+</head>
+<body>
+
+<script>
+     /**
+     * 表示一个具有x和y分量的二维向量。
+     */
+    class Vector2 {
+        /**
+         * 使用指定的x和y值创建一个新的Vector2实例。
+         * @param {number} x 向量的x分量。默认为0。
+         * @param {number} y 向量的y分量。默认为0。
+         */
+        constructor(x = 0, y = 0) {
+            this.x = x;
+            this.y = y;
+        }
+
+        /**
+         * 将另一个向量的分量加到这个向量上。
+         * @param {Vector2} v 要相加的向量。
+         * @returns {Vector2} 相加操作后的这个向量。
+         */
+        add(v) {
+            this.x += v.x;
+            this.y += v.y;
+            return this;
+        }
+
+        /**
+         * 将这个向量的分量按标量值缩放。
+         * @param {number} s 用于乘以向量分量的标量值。
+         * @returns {Vector2} 缩放操作后的这个向量。
+         */
+        multiplyScalar(s) {
+            this.x *= s;
+            this.y *= s;
+            return this;
+        }
+
+        /**
+         * 创建一个与这个向量完全相同的副本。
+         * @returns {Vector2} 与当前向量相同的新向量。
+         */
+        clone() {
+            return new Vector2(this.x, this.y);
+        }
+    }
+
+    /**
+     * Time类用于管理和更新游戏或应用程序的时间状态。
+     */
+    class Time {
+        /**
+         * 构造函数初始化时间状态。
+         */
+        constructor() {
+            // 获取当前时间作为开始时间
+            const now = Time.now();
+
+            this.delta = 0; // 上一帧到当前帧的时间差
+            this.elapsed = 0; // 从开始到当前的总时间
+            this.start = now; // 应用或游戏开始的时间戳
+            this.previous = now; // 上一帧的时间戳
+        }
+
+        /**
+         * 更新时间状态，计算时间差和总时间。
+         */
+        update() {
+            // 获取当前时间
+            const now = Time.now();
+
+            // 计算时间差和总时间，并更新上一帧时间
+            this.delta = now - this.previous; // 时间差
+            this.elapsed = now - this.start; // 总时间
+            this.previous = now; // 更新上一帧时间戳
+        }
+
+        /**
+         * 获取当前时间（秒级精度）。
+         * @returns {number} 当前时间戳（秒）
+         */
+        static now() {
+            return Date.now() / 1000; // 返回当前时间戳，转换为秒
+        }
+    }
+
+    /**
+     * 粒子类，用于创建和管理粒子的状态和行为。
+     * @param {Vector2} position - 粒子的初始位置。
+     * @param {Vector2} velocity - 粒子的初始速度，默认为新的Vector2实例。
+     * @param {string} color - 粒子的颜色，默认为'white'。
+     * @param {number} radius - 粒子的初始半径，默认为1。
+     * @param {number} lifetime - 粒子的生命周期，默认为1。
+     * @param {number} mass - 粒子的质量，默认为1。
+     */
+    class Particle {
+        constructor(position, velocity = new Vector2, color = 'white', radius = 1, lifetime = 1, mass = 1) {
+            this.position = position;
+            this.velocity = velocity;
+            this.color = color;
+            this.radius = radius;
+            this.lifetime = lifetime;
+            this.mass = mass;
+
+            // 粒子是否仍在画布上
+            this.isInCanvas = true;
+            // 粒子创建的时间
+            this.createdOn = Time.now();
+        }
+
+        /**
+         * 粒子的更新函数，用于每帧的逻辑更新。
+         * @param {Time} time - 当前时间对象，包含delta时间。
+         */
+        update(time) {
+            // 如果粒子剩余生命周期为0，则不进行更新
+            if (!this.getRemainingLifetime()) {
+                return;
+            }
+
+            // 应用重力加速度
+            this.velocity.add(Particle.GRAVITATION.clone().multiplyScalar(this.mass));
+            // 根据速度和时间更新位置
+            this.position.add(this.velocity.clone().multiplyScalar(time.delta));
+        }
+
+        /**
+         * 粒子的渲染函数，用于每帧将粒子绘制到画布上。
+         * @param {HTMLCanvasElement} canvas - 要绘制到的画布元素。
+         * @param {CanvasRenderingContext2D} context - 画布的2D上下文。
+         */
+        render(canvas, context) {
+            // 获取粒子的剩余生命周期
+            const remainingLifetime = this.getRemainingLifetime();
+
+            // 如果剩余生命周期为0，则不进行渲染
+            if (!remainingLifetime) return;
+
+            // 根据剩余生命周期动态调整粒子的半径
+            const radius = this.radius * remainingLifetime;
+
+            // 设置绘制透明度和混合模式
+            context.globalAlpha = remainingLifetime;
+            context.globalCompositeOperation = 'lighter';
+            // 设置绘制颜色
+            context.fillStyle = this.color;
+
+            // 绘制圆形粒子
+            context.beginPath();
+            context.arc(this.position.x, this.position.y, radius, 0, Math.PI * 2);
+            context.fill();
+        }
+
+        /**
+         * 获取粒子的剩余生命周期。
+         * @returns {number} 剩余生命周期，范围为0到1。
+         */
+        getRemainingLifetime() {
+            // 计算已过去的时间
+            const elapsedLifetime = Time.now() - this.createdOn;
+            // 返回剩余生命周期，确保值在0到1之间
+            return Math.max(0, this.lifetime - elapsedLifetime) / this.lifetime;
+        }
+    }
+
+    /**
+     * 定义一个全局的重力向量常量。
+     * 该向量表示了粒子受到的重力影响，是一个在Y轴上具有地球表面标准重力加速度（9.81 m/s²）的向量。
+     *
+     * @type {Vector2}
+     * @constant
+     */
+    Particle.GRAVITATION = new Vector2(0, 9.81);
+
+    /**
+     * Trail 类继承自 Particle 类，用于创建带有一系列子粒子的轨迹。
+     * @param {Function} childFactory - 用于创建子粒子的工厂函数。
+     * @param {Vector2} position - 轨迹的初始位置。
+     * @param {Vector2} velocity - 轨迹的初始速度，默认为新的 Vector2 实例。
+     * @param {number} lifetime - 轨迹的生命周期，默认为 1。
+     * @param {number} mass - 轨迹的质量，默认为 1。
+     */
+    class Trail extends Particle {
+        constructor(childFactory, position, velocity = new Vector2, lifetime = 1, mass = 1) {
+            super(position, velocity);
+
+            this.childFactory = childFactory; // 用于生成轨迹中的子粒子的工厂方法
+            this.children = []; // 存储子粒子的数组
+            this.lifetime = lifetime; // 轨迹的总生命周期
+            this.mass = mass; // 轨迹的质量
+
+            this.isAlive = true; // 标记轨迹是否存活
+        }
+
+        /**
+         * 更新轨迹和其子粒子的状态。
+         * @param {number} time - 当前时间或时间增量。
+         */
+        update(time) {
+            super.update(time); // 调用父类的更新方法
+
+            // 每帧添加一个新子粒子
+            if (this.isAlive && this.getRemainingLifetime()) {
+                this.children.push(this.childFactory(this));
+            }
+
+            // 过滤掉已经死亡的子粒子
+            this.children = this.children.filter(function(child) {
+                if (child instanceof Trail) {
+                    return child.isAlive;
+                }
+
+                return child.getRemainingLifetime();
+            });
+
+            // 如果所有子粒子都消亡，则标记轨迹为死亡
+            if (!this.children.length) {
+                this.isAlive = false;
+            }
+
+            // 更新所有子粒子的状态
+            this.children.forEach(function(child) {
+                child.update(time);
+            });
+        }
+
+        /**
+         * 渲染轨迹及其所有子粒子。
+         * @param {HTMLCanvasElement} canvas - 用于渲染的画布元素。
+         * @param {CanvasRenderingContext2D} context - 画布的 2D 上下文。
+         */
+        render(canvas, context) {
+            // 遍历并渲染所有子粒子
+            this.children.forEach(function(child) {
+                child.render(canvas, context);
+            });
+        }
+    }
+
+    /**
+ * Rocket 类继承自 Trail 类，表示带有爆炸效果的火箭。
+ * @extends Trail
+ * @param {Function} childFactory - 创建子对象的工厂函数。
+ * @param {Function} explosionFactory - 创建爆炸效果的工厂函数。
+ * @param {Vector2} position - 火箭的初始位置。
+ * @param {Vector2} [velocity=new Vector2] - 火箭的初始速度。默认为一个新的 Vector2 对象，如果没有提供的话。
+ */
+class Rocket extends Trail {
+    constructor(childFactory, explosionFactory, position, velocity = new Vector2) {
+        super(childFactory, position, velocity);
+
+        this.explosionFactory = explosionFactory; // 爆炸效果的创建函数。
+        this.lifetime = 10; // 火箭在爆炸前的存活时间（秒）。
+    }
+
+    /**
+     * 随时间更新火箭的状态。
+     * 检查火箭的存活时间是否已过，或者它是否仍在向上移动，以触发爆炸效果并移除火箭。
+     * @param {number} time - 自上一次更新以来经过的时间（毫秒）。
+     */
+    update(time) {
+        // 如果火箭的存活时间未结束且仍向上移动，则触发爆炸效果。
+        if (this.getRemainingLifetime() && this.velocity.y > 0) {
+            this.explosionFactory(this); // 与该火箭关联的爆炸效果。
+            this.lifetime = 0; // 将存活时间设为 0，以防止进一步更新。
+        }
+
+        super.update(time); // 调用父类 Trail 的 update 方法。
+    }
+}
+
+    <!-- 创建canvas元素并获取2D绘图上下文 -->
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    <!-- 创建时间对象，用于游戏循环更新 -->
+    const time = new Time;
+
+    <!-- 火箭对象数组 -->
+    let rockets = [];
+
+    /**
+     * 获取信任粒子工厂函数
+     * @param {number} baseHue - 基础色相值
+     * @returns {Function} 返回一个函数，该函数用于创建信任粒子
+     */
+    const getTrustParticleFactory = function(baseHue) {
+        /**
+         * 随机获取颜色
+         * @returns {string} 返回颜色的hsl字符串表示
+         */
+        function getColor() {
+            const hue = Math.floor(Math.random() * 15 + 30);
+            return `hsl(${hue}, 100%, 75%`;
+        }
+
+        /**
+         * 创建信任粒子
+         * @param {Object} parent - 父级对象（火箭）
+         * @returns {Object} 返回粒子对象
+         */
+        return function(parent) {
+            // 初始化粒子位置和速度
+            const position = this.position.clone();
+            const velocity = this.velocity.clone().multiplyScalar(-.1);
+            velocity.x += (Math.random() - .5) * 8;
+            // 随机颜色、半径和生命周期
+            const color = getColor();
+            const radius = 1 + Math.random();
+            const lifetime = .5 + Math.random() * .5;
+            const mass = .01;
+
+            return new Particle(position, velocity, color, radius, lifetime, mass);
+        };
+    };
+
+    /**
+     * 获取爆炸效果工厂函数
+     * @param {number} baseHue - 基础色相值
+     * @returns {Function} 返回一个函数，该函数用于创建爆炸效果
+     */
+    const getExplosionFactory = function(baseHue) {
+        /**
+         * 随机获取颜色
+         * @returns {string} 返回颜色的hsl字符串表示
+         */
+        function getColor() {
+            const hue = Math.floor(baseHue + Math.random() * 15) % 360;
+            const lightness = Math.floor(Math.pow(Math.random(), 2) * 50 + 50);
+            return `hsl(${hue}, 100%, ${lightness}%`;
+        }
+
+        /**
+         * 创建子粒子工厂函数
+         * @returns {Function} 返回一个函数，该函数用于创建爆炸中的子粒子
+         */
+        function getChildFactory() {
+            return function(parent) {
+                // 初始化子粒子方向和速度
+                const direction = Math.random() * Math.PI * 2;
+                const force = 8;
+                const velocity = new Vector2(Math.cos(direction) * force, Math.sin(direction) * force);
+                // 随机颜色、半径和生命周期
+                const color = getColor();
+                const radius = 1 + Math.random();
+                const lifetime = 1;
+                const mass = .1;
+
+                return new Particle(parent.position.clone(), velocity, color, radius, lifetime, mass);
+            };
+        }
+
+        /**
+         * 创建爆炸尾迹
+         * @param {Object} position - 爆炸位置
+         * @returns {Object} 返回尾迹对象
+         */
+        function getTrail(position) {
+            // 初始化尾迹方向和速度
+            const direction = Math.random() * Math.PI * 2;
+            const force = Math.random() * 128;
+            const velocity = new Vector2(Math.cos(direction) * force, Math.sin(direction) * force);
+            const lifetime = .5 + Math.random();
+            const mass = .075;
+
+            return new Trail(getChildFactory(), position, velocity, lifetime, mass);
+        }
+
+        /**
+         * 创建爆炸效果
+         * @param {Object} parent - 父级对象（火箭或粒子）
+         */
+        return function(parent) {
+            // 生成爆炸尾迹
+            let trails = 32;
+            while (trails--) {
+                parent.children.push(getTrail(parent.position.clone()));
+            }
+        };
+    };
+
+    /**
+     * 添加一个新的火箭
+     */
+    const addRocket = function() {
+        // 获取信任粒子和爆炸效果的工厂函数
+        const trustParticleFactory = getTrustParticleFactory();
+        const explosionFactory = getExplosionFactory(Math.random() * 360);
+
+        // 初始化火箭位置、推力和角度
+        const position = new Vector2(Math.random() * canvas.width, canvas.height);
+        const thrust = window.innerHeight * .75;
+        const angle = Math.PI / -2 + (Math.random() - .5) * Math.PI / 8;
+        const velocity = new Vector2(Math.cos(angle) * thrust, Math.sin(angle) * thrust);
+        const lifetime = 3;
+
+        rockets.push(new Rocket(trustParticleFactory, explosionFactory, position, velocity, lifetime));
+
+        // 移除已经销毁的火箭
+        rockets = rockets.filter(function(rocket) {
+            return rocket.isAlive;
+        });
+    };
+
+    /**
+     * 渲染函数
+     */
+    const render = function() {
+        requestAnimationFrame(render);
+
+        time.update();
+        context.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 更新并渲染所有火箭
+        rockets.forEach(function(rocket) {
+            rocket.update(time);
+            rocket.render(canvas, context);
+        });
+    };
+
+    /**
+     * 窗口大小改变时调整canvas大小
+     */
+    const resize = function() {
+        canvas.height = window.innerHeight;
+        canvas.width = window.innerWidth;
+    };
+
+    <!-- 绑定点击事件以添加新的火箭 -->
+    canvas.onclick = addRocket;
+
+    <!-- 将canvas添加到文档中 -->
+    document.body.appendChild(canvas);
+
+    <!-- 绑定窗口大小改变事件以调整canvas大小 -->
+    window.onresize = resize;
+    resize(); // 初始调整canvas大小
+
+    <!-- 定时添加火箭以维持动画效果 -->
+    setInterval(addRocket, 250);
+    render(); // 开始渲染
+
+</script>
+
+</body>
+</html>
